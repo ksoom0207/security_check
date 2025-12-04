@@ -107,16 +107,16 @@
 
     - name: "[Pre-Check] Set facts for file existence"
       set_fact:
-        has_sshd_config: "{{ sshd_config_stat.stat.exists }}"
-        has_pam_password: "{{ pam_files_stat.results[0].stat.exists }}"
-        has_pam_auth: "{{ pam_files_stat.results[1].stat.exists }}"
-        has_pam_account: "{{ pam_files_stat.results[2].stat.exists }}"
-        has_login_defs: "{{ login_defs_stat.stat.exists }}"
-        has_profile: "{{ profile_stat.stat.exists }}"
-        has_shadow: "{{ shadow_stat.stat.exists }}"
-        has_rsyslog: "{{ rsyslog_stat.stat.exists }}"
-        has_crontab: "{{ crontab_stat.stat.exists }}"
-        has_apache_config: "{{ apache_config_stat.stat.exists if apache_config_stat is defined else false }}"
+        has_sshd_config: "{{ sshd_config_stat.stat.exists | default(false) }}"
+        has_pam_password: "{{ pam_files_stat.results[0].stat.exists | default(false) }}"
+        has_pam_auth: "{{ pam_files_stat.results[1].stat.exists | default(false) }}"
+        has_pam_account: "{{ pam_files_stat.results[2].stat.exists | default(false) }}"
+        has_login_defs: "{{ login_defs_stat.stat.exists | default(false) }}"
+        has_profile: "{{ profile_stat.stat.exists | default(false) }}"
+        has_shadow: "{{ shadow_stat.stat.exists | default(false) }}"
+        has_rsyslog: "{{ rsyslog_stat.stat.exists | default(false) }}"
+        has_crontab: "{{ crontab_stat.stat.exists | default(false) }}"
+        has_apache_config: "{{ apache_config_stat.stat.exists | default(false) }}"
       tags: ['always']
 
     - name: "[Pre-Check] Display completion message"
