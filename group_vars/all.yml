@@ -1,0 +1,20 @@
+---
+# Global variables for all servers
+# 모든 서버에 적용될 전역 변수
+
+# U-68 배너에 사용될 변수
+notice_1: "Authorized Personnel Only"
+
+# Cron 허용 사용자 목록 (U-22)
+cron_allowed_users:
+  - root
+  - glance
+  - horizon
+
+# 패스워드 정책 변수 (필요시 커스터마이징)
+password_max_days: 90
+password_min_len: 8
+password_min_days: 1
+
+# 세션 타임아웃 (초 단위)
+session_timeout: 600

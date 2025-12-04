@@ -1,0 +1,366 @@
+---
+- name: Server Security Hardening (U-Code Compliance)
+  hosts: all_servers
+  become: yes
+
+  handlers:
+    - name: restart sshd
+      service:
+        name: sshd
+        state: restarted
+
+    - name: restart apache2
+      service:
+        name: apache2
+        state: restarted
+
+  tasks:
+    # -------------------------------------------------------
+    # U-01: Root Login Restriction
+    # -------------------------------------------------------
+    - name: "[U-01] Restrict Root Login in sshd_config"
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PermitRootLogin'
+        line: 'PermitRootLogin no'
+        state: present
+      notify: restart sshd
+      tags: ['u-01', 'ssh']
+
+    # -------------------------------------------------------
+    # U-02, U-03: PAM Configuration
+    # -------------------------------------------------------
+    - name: "[U-03] Install libpam-pwquality"
+      apt:
+        name: libpam-pwquality
+        state: present
+        update_cache: yes
+      tags: ['u-03', 'pam']
+
+    - name: "[U-02] Backup /etc/pam.d/common-password"
+      copy:
+        src: /etc/pam.d/common-password
+        dest: /etc/pam.d/common-password_org
+        remote_src: yes
+        force: no
+      tags: ['u-02', 'pam']
+
+    - name: "[U-02] Configure /etc/pam.d/common-password"
+      template:
+        src: templates/common-password.j2
+        dest: /etc/pam.d/common-password
+        backup: yes
+        mode: '0644'
+      tags: ['u-02', 'pam']
+
+    - name: "[U-03] Backup /etc/pam.d/common-auth"
+      copy:
+        src: /etc/pam.d/common-auth
+        dest: /etc/pam.d/common-auth_org
+        remote_src: yes
+        force: no
+      tags: ['u-03', 'pam']
+
+    - name: "[U-03] Configure /etc/pam.d/common-auth"
+      template:
+        src: templates/common-auth.j2
+        dest: /etc/pam.d/common-auth
+        backup: yes
+        mode: '0644'
+      tags: ['u-03', 'pam']
+
+    - name: "[U-03] Backup /etc/pam.d/common-account"
+      copy:
+        src: /etc/pam.d/common-account
+        dest: /etc/pam.d/common-account_org
+        remote_src: yes
+        force: no
+      tags: ['u-03', 'pam']
+
+    - name: "[U-03] Update /etc/pam.d/common-account"
+      blockinfile:
+        path: /etc/pam.d/common-account
+        block: |
+          account required                        pam_faillock.so
+        marker: "# {mark} ANSIBLE MANAGED BLOCK U-03"
+        backup: yes
+      tags: ['u-03', 'pam']
+
+    # -------------------------------------------------------
+    # U-47, U-46: Password Aging (login.defs)
+    # -------------------------------------------------------
+    - name: "[U-47] Set PASS_MAX_DAYS to {{ password_max_days }}"
+      lineinfile:
+        path: /etc/login.defs
+        regexp: '^PASS_MAX_DAYS'
+        line: 'PASS_MAX_DAYS	{{ password_max_days }}'
+      tags: ['u-47', 'password']
+
+    - name: "[U-46] Set PASS_MIN_LEN to {{ password_min_len }}"
+      lineinfile:
+        path: /etc/login.defs
+        regexp: '^#?PASS_MIN_LEN'
+        line: 'PASS_MIN_LEN	{{ password_min_len }}'
+      tags: ['u-46', 'password']
+
+    - name: "[U-46] Set PASS_MIN_DAYS to {{ password_min_days }}"
+      lineinfile:
+        path: /etc/login.defs
+        regexp: '^PASS_MIN_DAYS'
+        line: 'PASS_MIN_DAYS	{{ password_min_days }}'
+      tags: ['u-46', 'password']
+
+    # -------------------------------------------------------
+    # U-54: Session Timeout
+    # -------------------------------------------------------
+    - name: "[U-54] Set TMOUT in /etc/profile"
+      blockinfile:
+        path: /etc/profile
+        block: |
+          TMOUT={{ session_timeout }}
+          export TMOUT
+        marker: "# {mark} ANSIBLE MANAGED BLOCK U-54"
+      tags: ['u-54', 'session']
+
+    # -------------------------------------------------------
+    # U-08, U-11: File Permissions
+    # -------------------------------------------------------
+    - name: "[U-08] Change permissions of /etc/shadow"
+      file:
+        path: /etc/shadow
+        mode: '0400'
+      tags: ['u-08', 'permissions']
+
+    - name: "[U-11] Change permissions of /etc/rsyslog.conf"
+      file:
+        path: /etc/rsyslog.conf
+        mode: '0640'
+      tags: ['u-11', 'permissions']
+
+    # -------------------------------------------------------
+    # U-13: Remove SUID/SGID
+    # -------------------------------------------------------
+    - name: "[U-13] Remove SUID from newgrp and unix_chkpwd"
+      file:
+        path: "{{ item }}"
+        mode: "u-s"
+      loop:
+        - /usr/bin/newgrp
+        - /sbin/unix_chkpwd
+      ignore_errors: yes
+      tags: ['u-13', 'suid']
+
+    # -------------------------------------------------------
+    # U-49, U-50: Remove Unnecessary Users/Groups
+    # -------------------------------------------------------
+    - name: "[U-49] Remove unnecessary users"
+      user:
+        name: "{{ item }}"
+        state: absent
+        remove: yes
+      loop:
+        - lp
+        - uucp
+        - games
+      ignore_errors: yes
+      tags: ['u-49', 'users']
+
+    - name: "[U-50] Remove unnecessary groups"
+      group:
+        name: "{{ item }}"
+        state: absent
+      loop:
+        - lp
+        - uucp
+        - games
+      ignore_errors: yes
+      tags: ['u-50', 'groups']
+
+    # -------------------------------------------------------
+    # U-22: Cron Allow
+    # -------------------------------------------------------
+    - name: "[U-22] Configure /etc/cron.allow"
+      template:
+        src: templates/cron.allow.j2
+        dest: /etc/cron.allow
+        mode: '0640'
+      tags: ['u-22', 'cron']
+
+    - name: "[U-22] Restrict crontab binary permission"
+      file:
+        path: /usr/bin/crontab
+        mode: '0750'
+      tags: ['u-22', 'cron']
+
+    # -------------------------------------------------------
+    # U-68: Warning Banners
+    # -------------------------------------------------------
+    - name: "[U-68] Configure /etc/issue.net"
+      copy:
+        content: 'BANNER="WARNING:Authorized use only."'
+        dest: /etc/issue.net
+        mode: '0644'
+      tags: ['u-68', 'banner']
+
+    - name: "[U-68] Configure /etc/issue"
+      template:
+        src: templates/issue.j2
+        dest: /etc/issue
+        mode: '0644'
+      tags: ['u-68', 'banner']
+
+    - name: "[U-68] Configure /etc/motd"
+      template:
+        src: templates/motd.j2
+        dest: /etc/motd
+        mode: '0644'
+      tags: ['u-68', 'banner']
+
+    # -------------------------------------------------------
+    # Apache Configuration (web_controllers Only)
+    # -------------------------------------------------------
+    - name: "[Apache] Configure Apache Security Settings"
+      block:
+        - name: "[U-35,U-39,U-37] Backup apache2.conf"
+          copy:
+            src: /etc/apache2/apache2.conf
+            dest: /etc/apache2/apache2.conf_org
+            remote_src: yes
+            force: no
+
+        - name: "[U-35] Disable Indexes in apache2.conf"
+          replace:
+            path: /etc/apache2/apache2.conf
+            regexp: 'Options Indexes'
+            replace: 'Options -Indexes'
+            backup: yes
+
+        - name: "[U-39] Disable FollowSymLinks"
+          replace:
+            path: /etc/apache2/apache2.conf
+            regexp: '(\s)FollowSymLinks'
+            replace: '\1-FollowSymLinks'
+
+        - name: "[U-37] AllowOverride AuthConfig"
+          replace:
+            path: /etc/apache2/apache2.conf
+            regexp: 'AllowOverride None'
+            replace: 'AllowOverride AuthConfig'
+
+        - name: "[U-35] Verify Indexes disabled"
+          command: grep -E "(Options.*Indexes|Options -Indexes)" /etc/apache2/apache2.conf
+          register: u35_check
+          changed_when: false
+          failed_when: false
+
+        - name: "[U-39] Verify FollowSymLinks disabled"
+          command: grep "FollowSymLinks" /etc/apache2/apache2.conf
+          register: u39_check
+          changed_when: false
+          failed_when: false
+
+        - name: "[U-37] Verify AllowOverride set"
+          command: grep "AllowOverride" /etc/apache2/apache2.conf
+          register: u37_check
+          changed_when: false
+          failed_when: false
+
+        - name: "[U-40] Comment out /srv/ Directory section"
+          replace:
+            path: /etc/apache2/apache2.conf
+            regexp: '^(<Directory /srv/>)$'
+            replace: '#\1'
+
+        - name: "[U-40] Comment out Options line in /srv/ section"
+          replace:
+            path: /etc/apache2/apache2.conf
+            regexp: '^(\s+Options Indexes FollowSymLinks)$'
+            replace: '#\1'
+
+        - name: "[U-40] Comment out AllowOverride line in /srv/ section"
+          replace:
+            path: /etc/apache2/apache2.conf
+            regexp: '^(\s+AllowOverride None)$'
+            replace: '#\1'
+
+        - name: "[U-40] Comment out Require line in /srv/ section"
+          replace:
+            path: /etc/apache2/apache2.conf
+            regexp: '^(\s+Require all granted)$'
+            replace: '#\1'
+
+        - name: "[U-40] Comment out closing Directory tag for /srv/"
+          replace:
+            path: /etc/apache2/apache2.conf
+            regexp: '^(</Directory>)(\s*#.*srv.*)?$'
+            replace: '#\1'
+
+        - name: "[U-41] Add DocumentRoot for repo"
+          lineinfile:
+            path: /etc/apache2/apache2.conf
+            line: "DocumentRoot /var/www/repo"
+            insertafter: EOF
+            state: present
+
+        - name: "[U-41] Verify DocumentRoot set"
+          command: grep "DocumentRoot" /etc/apache2/apache2.conf
+          register: u41_check
+          changed_when: false
+          failed_when: false
+
+      when: "'web_controllers' in group_names"
+      notify: restart apache2
+      tags: ['apache', 'u-35', 'u-37', 'u-39', 'u-40', 'u-41']
+
+    # -------------------------------------------------------
+    # Final Verification
+    # -------------------------------------------------------
+    - name: "[Verification] Display password policy settings"
+      command: grep -E "PASS_MIN_LEN|PASS_MAX_DAYS|PASS_MIN_DAYS" /etc/login.defs
+      register: password_policy
+      changed_when: false
+      failed_when: false
+      tags: ['verify']
+
+    - name: "[Verification] Display password policy results"
+      debug:
+        var: password_policy.stdout_lines
+      when: password_policy.stdout_lines is defined
+      tags: ['verify']
+
+    - name: "[Verification] Check removed users"
+      command: grep -E "lp|uucp|game" /etc/passwd
+      register: removed_users
+      changed_when: false
+      failed_when: false
+      tags: ['verify']
+
+    - name: "[Verification] Display removed users check"
+      debug:
+        msg: "{{ 'Users still present: ' + removed_users.stdout if removed_users.rc == 0 else 'All unnecessary users removed' }}"
+      tags: ['verify']
+
+    - name: "[Verification] Check removed groups"
+      command: grep -E "lp|uucp|game" /etc/group
+      register: removed_groups
+      changed_when: false
+      failed_when: false
+      tags: ['verify']
+
+    - name: "[Verification] Display removed groups check"
+      debug:
+        msg: "{{ 'Groups still present: ' + removed_groups.stdout if removed_groups.rc == 0 else 'All unnecessary groups removed' }}"
+      tags: ['verify']
+
+    - name: "[Verification] Check cron.allow contents"
+      command: cat /etc/cron.allow
+      register: cron_allow
+      changed_when: false
+      failed_when: false
+      tags: ['verify']
+
+    - name: "[Verification] Display cron.allow contents"
+      debug:
+        var: cron_allow.stdout_lines
+      when: cron_allow.stdout_lines is defined
+      tags: ['verify']

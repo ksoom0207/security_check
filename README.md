@@ -1,0 +1,220 @@
+# Ansible Security Hardening Playbook
+
+이 프로젝트는 리눅스 서버의 보안 강화를 위한 Ansible 플레이북입니다. 기존 Bash 스크립트를 Ansible로 변환하여 관리 편의성과 재사용성을 높였습니다.
+
+## 프로젝트 구조
+
+```
+project_root/
+├── inventory.ini             # 호스트 정의 파일
+├── group_vars/
+│   └── all.yml               # 전역 변수 (배너 문구 등)
+├── templates/                # 설정 파일 템플릿 (.j2)
+│   ├── common-password.j2    # [U-02] PAM 패스워드 정책
+│   ├── common-auth.j2        # [U-03] PAM 인증 설정
+│   ├── cron.allow.j2         # [U-22] Cron 허용 사용자
+│   ├── issue.j2              # [U-68] 로그인 배너
+│   └── motd.j2               # [U-68] MOTD 배너
+├── harden_playbook.yml       # 메인 플레이북
+└── README.md                 # 이 파일
+```
+
+## 적용되는 보안 항목
+
+### 계정 관리
+- **U-01**: SSH Root 로그인 제한
+- **U-02**: 패스워드 복잡도 설정 (PAM)
+- **U-03**: 계정 잠금 임계값 설정 (5회 실패 시 120초 잠금)
+- **U-46**: 패스워드 최소 길이 설정 (8자 이상)
+- **U-47**: 패스워드 최대 사용 기간 설정 (90일)
+- **U-49**: 불필요한 계정 제거 (lp, uucp, games)
+- **U-50**: 불필요한 그룹 제거 (lp, uucp, games)
+
+### 파일 및 디렉토리 관리
+- **U-08**: /etc/shadow 파일 권한 강화 (400)
+- **U-11**: /etc/rsyslog.conf 파일 권한 강화 (640)
+- **U-13**: 불필요한 SUID/SGID 제거
+
+### 서비스 관리
+- **U-22**: Cron 접근 제어
+- **U-54**: 세션 타임아웃 설정 (600초)
+- **U-68**: 경고 배너 설정
+
+### Apache 웹 서버 (web_controllers 그룹만 해당)
+- **U-35**: 디렉토리 목록 표시 비활성화
+- **U-37**: AllowOverride 설정
+- **U-39**: FollowSymLinks 비활성화
+- **U-40**: /srv/ 디렉토리 접근 제한
+- **U-41**: DocumentRoot 설정
+
+## 사용 방법
+
+### 1. Inventory 설정
+
+`inventory.ini` 파일을 편집하여 대상 서버를 정의합니다:
+
+```ini
+[all_servers]
+server1 ansible_host=192.168.1.10 ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_rsa
+server2 ansible_host=192.168.1.11 ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_rsa
+
+[web_controllers]
+server1  # Apache 설정이 필요한 서버만 추가
+```
+
+### 2. 변수 커스터마이징
+
+`group_vars/all.yml` 파일에서 변수를 수정할 수 있습니다:
+
+```yaml
+password_max_days: 90        # 패스워드 최대 사용 기간
+password_min_len: 8          # 패스워드 최소 길이
+password_min_days: 1         # 패스워드 최소 사용 기간
+session_timeout: 600         # 세션 타임아웃 (초)
+cron_allowed_users:          # Cron 허용 사용자
+  - root
+  - your_admin_user
+```
+
+### 3. 실행 방법
+
+#### 기본 실행
+```bash
+ansible-playbook -i inventory.ini harden_playbook.yml
+```
+
+#### Check Mode (실제 변경 없이 확인만)
+```bash
+ansible-playbook -i inventory.ini harden_playbook.yml --check --diff
+```
+
+#### 특정 태그만 실행
+```bash
+# SSH 설정만 적용
+ansible-playbook -i inventory.ini harden_playbook.yml --tags ssh
+
+# Apache 설정만 적용
+ansible-playbook -i inventory.ini harden_playbook.yml --tags apache
+
+# PAM 설정만 적용
+ansible-playbook -i inventory.ini harden_playbook.yml --tags pam
+```
+
+#### 특정 호스트만 실행
+```bash
+ansible-playbook -i inventory.ini harden_playbook.yml --limit server1
+```
+
+#### 결과를 파일로 저장
+```bash
+ansible-playbook -i inventory.ini harden_playbook.yml > result.log 2>&1
+```
+
+### 4. 결과 해석
+
+실행 후 PLAY RECAP이 표시됩니다:
+
+```
+PLAY RECAP *********************************************************************
+server1 : ok=35   changed=12   unreachable=0    failed=0    skipped=0
+server2 : ok=30   changed=8    unreachable=0    failed=0    skipped=5
+```
+
+- **ok**: 작업 성공 (변경 없음 또는 변경 완료)
+- **changed**: 설정이 변경됨
+- **unreachable**: 서버에 접속 불가
+- **failed**: 작업 실패
+- **skipped**: 조건에 맞지 않아 건너뜀
+
+### 5. 실패 원인 분석
+
+실패 시 빨간색으로 상세한 오류 메시지가 출력됩니다:
+
+```
+TASK [U-35] Disable Indexes in apache2.conf] **********************************
+fatal: [server1]: FAILED! => {
+    "msg": "Destination /etc/apache2/apache2.conf does not exist !"
+}
+```
+
+## 주의사항
+
+### 실행 전 확인사항
+1. **백업**: 중요한 설정 파일은 자동으로 백업되지만, 전체 시스템 백업을 권장합니다
+2. **테스트**: 프로덕션 환경 적용 전 테스트 환경에서 먼저 실행하세요
+3. **접근 권한**: Ansible 실행 사용자가 sudo 권한을 가지고 있어야 합니다
+4. **SSH 접근**: 대상 서버에 SSH로 접속 가능해야 합니다
+
+### PAM 설정 관련
+- PAM 설정 변경 후 로그인이 불가능할 수 있으므로, **현재 세션을 유지한 채로 새 세션에서 로그인 테스트**를 해야 합니다
+- 문제 발생 시 백업 파일(`*_org`)로 복원할 수 있습니다
+
+### Apache 설정 관련
+- Apache가 설치되지 않은 서버는 `web_controllers` 그룹에서 제외하세요
+- Apache 설정 변경 후 구문 오류가 있으면 서비스가 시작되지 않을 수 있습니다
+
+## 고급 사용법
+
+### 병렬 실행
+```bash
+# 10개 호스트를 동시에 처리
+ansible-playbook -i inventory.ini harden_playbook.yml -f 10
+```
+
+### Verbose 모드
+```bash
+# 상세한 실행 로그 확인
+ansible-playbook -i inventory.ini harden_playbook.yml -vvv
+```
+
+### 환경별 실행
+```bash
+# 개발 환경
+ansible-playbook -i inventory_dev.ini harden_playbook.yml
+
+# 운영 환경
+ansible-playbook -i inventory_prod.ini harden_playbook.yml
+```
+
+## 검증
+
+플레이북 실행 후 자동으로 검증 태스크가 실행됩니다:
+- 패스워드 정책 확인
+- 제거된 사용자/그룹 확인
+- Cron 설정 확인
+
+수동 검증:
+```bash
+# 특정 서버의 설정 확인
+ansible -i inventory.ini server1 -m command -a "grep PASS /etc/login.defs"
+ansible -i inventory.ini server1 -m command -a "cat /etc/cron.allow"
+```
+
+## 트러블슈팅
+
+### 1. "Permission denied" 오류
+```bash
+# SSH 키 확인
+ansible -i inventory.ini all -m ping
+
+# sudo 권한 확인
+ansible -i inventory.ini all -m command -a "sudo -l" --ask-pass
+```
+
+### 2. 패키지 설치 실패
+```bash
+# apt 캐시 업데이트
+ansible -i inventory.ini all -m apt -a "update_cache=yes"
+```
+
+### 3. 파일이 존재하지 않음
+해당 항목은 `ignore_errors: yes`가 설정되어 있어 플레이북 실행이 계속됩니다.
+필요한 경우 해당 태스크를 수정하거나 제거하세요.
+
+## 라이선스
+
+이 프로젝트는 보안 강화 목적으로 사용됩니다.
+
+## 기여
+
+개선 사항이나 버그 리포트는 이슈로 등록해 주세요.
