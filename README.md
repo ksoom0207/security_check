@@ -7,6 +7,8 @@
 ```
 project_root/
 ├── inventory.ini             # 호스트 정의 파일
+├── setup_ssh_keys.yml        # SSH 키 교환 플레이북 (최초 1회 실행)
+├── harden_playbook.yml       # 메인 보안 강화 플레이북
 ├── group_vars/
 │   └── all.yml               # 전역 변수 (배너 문구 등)
 ├── templates/                # 설정 파일 템플릿 (.j2)
@@ -15,7 +17,6 @@ project_root/
 │   ├── cron.allow.j2         # [U-22] Cron 허용 사용자
 │   ├── issue.j2              # [U-68] 로그인 배너
 │   └── motd.j2               # [U-68] MOTD 배너
-├── harden_playbook.yml       # 메인 플레이북
 └── README.md                 # 이 파일
 ```
 
@@ -142,6 +143,62 @@ Pre-check 완료 후 실제 작업 실행 전에 사용자에게 확인을 요�
 
 ## 사용 방법
 
+### 0. SSH 키 교환 설정 (최초 1회)
+
+보안 강화 플레이북을 실행하기 전에 먼저 SSH 키 인증을 설정해야 합니다.
+
+#### SSH 키 자동 설정 (권장)
+```bash
+ansible-playbook setup_ssh_keys.yml
+```
+
+**실행 흐름:**
+1. 원격 호스트의 사용자명 입력 (기본값: 현재 사용자)
+2. SSH 패스워드 입력
+3. sshpass 자동 설치 (없는 경우)
+4. SSH 키 생성 (없는 경우)
+5. 모든 호스트에 SSH 공개키 자동 복사
+6. 연결 테스트
+
+**예시:**
+```bash
+$ ansible-playbook setup_ssh_keys.yml
+
+Enter remote username (default: ubuntu): ubuntu
+Enter SSH password for remote hosts:
+
+TASK [Setup] Display setup information
+ok: [localhost] =>
+  msg: |-
+    ============================================================
+    SSH 키 교환 설정 시작
+    ============================================================
+    대상 호스트: 3개
+    원격 사용자: ubuntu
+    ============================================================
+
+...
+
+TASK [Setup] Display connection test results
+ok: [localhost] =>
+  msg: |-
+    ✓ 모든 호스트에 SSH 키 인증이 성공적으로 설정되었습니다!
+    이제 보안 강화 플레이북을 실행할 수 있습니다
+```
+
+#### 수동 SSH 키 설정
+```bash
+# 1. SSH 키 생성 (없는 경우)
+ssh-keygen -t rsa -b 4096
+
+# 2. 각 호스트에 키 복사
+ssh-copy-id user@192.168.1.10
+ssh-copy-id user@192.168.1.11
+
+# 3. 연결 테스트
+ssh user@192.168.1.10 echo "test"
+```
+
 ### 1. Inventory 설정
 
 `inventory.ini` 파일을 편집하여 대상 서버를 정의합니다:
@@ -262,6 +319,76 @@ skipped가 많다면:
 1. Pre-Check 경고 메시지를 확인하여 어떤 파일이 없는지 파악
 2. 해당 파일/패키지를 설치할지 결정
 3. 필요 없는 항목이면 무시
+
+## 전체 워크플로우
+
+### 📋 완전한 실행 순서
+
+```bash
+# 1단계: SSH 키 교환 설정 (최초 1회만)
+ansible-playbook setup_ssh_keys.yml
+
+# 2단계: 보안 강화 플레이북 실행
+ansible-playbook -i inventory.ini harden_playbook.yml
+
+# 3단계: 결과 확인
+cat /tmp/security_hardening_report_<hostname>_<date>.txt
+```
+
+### 🔄 전체 프로세스
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ 1. 환경 준비                                             │
+├─────────────────────────────────────────────────────────┤
+│ • inventory.ini 편집 (호스트 정보)                       │
+│ • group_vars/all.yml 편집 (변수 설정)                    │
+└─────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────┐
+│ 2. SSH 키 교환 (최초 1회)                                │
+├─────────────────────────────────────────────────────────┤
+│ ansible-playbook setup_ssh_keys.yml                     │
+│                                                          │
+│ • sshpass 설치                                           │
+│ • SSH 키 생성                                            │
+│ • 모든 호스트에 키 복사                                  │
+│ • 연결 테스트                                            │
+└─────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────┐
+│ 3. 보안 강화 실행                                        │
+├─────────────────────────────────────────────────────────┤
+│ ansible-playbook -i inventory.ini harden_playbook.yml   │
+│                                                          │
+│ 3.1. Pre-Check (파일 존재 확인)                          │
+│ 3.2. Confirmation (사용자 확인)                          │
+│ 3.3. Security Hardening (보안 설정 적용)                 │
+│ 3.4. Verification (설정 검증)                            │
+│ 3.5. Summary Report (결과 리포트)                        │
+└─────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────┐
+│ 4. 사후 확인                                             │
+├─────────────────────────────────────────────────────────┤
+│ • 리포트 파일 확인                                       │
+│ • 새 세션에서 로그인 테스트                              │
+│ • 서비스 정상 작동 확인                                  │
+│ • 패스워드 정책 테스트                                   │
+└─────────────────────────────────────────────────────────┘
+```
+
+### ⚡ 빠른 시작 (Quick Start)
+
+완전 자동화 실행:
+```bash
+# 1. SSH 키 설정
+ansible-playbook setup_ssh_keys.yml
+
+# 2. 보안 강화 (확인 단계 스킵)
+ansible-playbook -i inventory.ini harden_playbook.yml \
+  --extra-vars "skip_confirmation=true"
+```
 
 ## 주의사항
 
