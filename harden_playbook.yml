@@ -3,6 +3,127 @@
   hosts: all_servers
   become: yes
 
+  pre_tasks:
+    # -------------------------------------------------------
+    # Pre-Check: Verify Critical Files Exist
+    # -------------------------------------------------------
+    - name: "[Pre-Check] Display pre-check banner"
+      debug:
+        msg: "Starting pre-check to verify critical files exist..."
+      tags: ['always']
+
+    - name: "[Pre-Check] Check if sshd_config exists"
+      stat:
+        path: /etc/ssh/sshd_config
+      register: sshd_config_stat
+      tags: ['always']
+
+    - name: "[Pre-Check] Check if PAM files exist"
+      stat:
+        path: "{{ item }}"
+      register: pam_files_stat
+      loop:
+        - /etc/pam.d/common-password
+        - /etc/pam.d/common-auth
+        - /etc/pam.d/common-account
+      tags: ['always']
+
+    - name: "[Pre-Check] Check if login.defs exists"
+      stat:
+        path: /etc/login.defs
+      register: login_defs_stat
+      tags: ['always']
+
+    - name: "[Pre-Check] Check if profile exists"
+      stat:
+        path: /etc/profile
+      register: profile_stat
+      tags: ['always']
+
+    - name: "[Pre-Check] Check if shadow exists"
+      stat:
+        path: /etc/shadow
+      register: shadow_stat
+      tags: ['always']
+
+    - name: "[Pre-Check] Check if rsyslog.conf exists"
+      stat:
+        path: /etc/rsyslog.conf
+      register: rsyslog_stat
+      tags: ['always']
+
+    - name: "[Pre-Check] Check if SUID binaries exist"
+      stat:
+        path: "{{ item }}"
+      register: suid_files_stat
+      loop:
+        - /usr/bin/newgrp
+        - /sbin/unix_chkpwd
+      tags: ['always']
+
+    - name: "[Pre-Check] Check if crontab binary exists"
+      stat:
+        path: /usr/bin/crontab
+      register: crontab_stat
+      tags: ['always']
+
+    - name: "[Pre-Check] Check if Apache config exists (web_controllers only)"
+      stat:
+        path: /etc/apache2/apache2.conf
+      register: apache_config_stat
+      when: "'web_controllers' in group_names"
+      tags: ['always']
+
+    - name: "[Pre-Check] Display missing critical files warning"
+      debug:
+        msg: |
+          WARNING: The following critical files are missing:
+          {% if not sshd_config_stat.stat.exists %}
+          - /etc/ssh/sshd_config (U-01 will be skipped)
+          {% endif %}
+          {% if not login_defs_stat.stat.exists %}
+          - /etc/login.defs (U-46, U-47 will be skipped)
+          {% endif %}
+          {% if not profile_stat.stat.exists %}
+          - /etc/profile (U-54 will be skipped)
+          {% endif %}
+          {% if not shadow_stat.stat.exists %}
+          - /etc/shadow (U-08 will be skipped)
+          {% endif %}
+          {% if not rsyslog_stat.stat.exists %}
+          - /etc/rsyslog.conf (U-11 will be skipped)
+          {% endif %}
+          {% if "'web_controllers' in group_names and apache_config_stat is defined and not apache_config_stat.stat.exists %}
+          - /etc/apache2/apache2.conf (Apache hardening will be skipped)
+          {% endif %}
+      when: >
+        not sshd_config_stat.stat.exists or
+        not login_defs_stat.stat.exists or
+        not profile_stat.stat.exists or
+        not shadow_stat.stat.exists or
+        not rsyslog_stat.stat.exists or
+        ('web_controllers' in group_names and apache_config_stat is defined and not apache_config_stat.stat.exists)
+      tags: ['always']
+
+    - name: "[Pre-Check] Set facts for file existence"
+      set_fact:
+        has_sshd_config: "{{ sshd_config_stat.stat.exists }}"
+        has_pam_password: "{{ pam_files_stat.results[0].stat.exists }}"
+        has_pam_auth: "{{ pam_files_stat.results[1].stat.exists }}"
+        has_pam_account: "{{ pam_files_stat.results[2].stat.exists }}"
+        has_login_defs: "{{ login_defs_stat.stat.exists }}"
+        has_profile: "{{ profile_stat.stat.exists }}"
+        has_shadow: "{{ shadow_stat.stat.exists }}"
+        has_rsyslog: "{{ rsyslog_stat.stat.exists }}"
+        has_crontab: "{{ crontab_stat.stat.exists }}"
+        has_apache_config: "{{ apache_config_stat.stat.exists if apache_config_stat is defined else false }}"
+      tags: ['always']
+
+    - name: "[Pre-Check] Display completion message"
+      debug:
+        msg: "Pre-check completed. Proceeding with security hardening tasks..."
+      tags: ['always']
+
   handlers:
     - name: restart sshd
       service:
@@ -25,6 +146,13 @@
         line: 'PermitRootLogin no'
         state: present
       notify: restart sshd
+      when: has_sshd_config | default(false)
+      tags: ['u-01', 'ssh']
+
+    - name: "[U-01] Warning - sshd_config not found"
+      debug:
+        msg: "WARNING: /etc/ssh/sshd_config not found. Skipping U-01 configuration."
+      when: not has_sshd_config | default(true)
       tags: ['u-01', 'ssh']
 
     # -------------------------------------------------------
@@ -43,6 +171,7 @@
         dest: /etc/pam.d/common-password_org
         remote_src: yes
         force: no
+      when: has_pam_password | default(false)
       tags: ['u-02', 'pam']
 
     - name: "[U-02] Configure /etc/pam.d/common-password"
@@ -51,6 +180,13 @@
         dest: /etc/pam.d/common-password
         backup: yes
         mode: '0644'
+      when: has_pam_password | default(false)
+      tags: ['u-02', 'pam']
+
+    - name: "[U-02] Warning - common-password not found"
+      debug:
+        msg: "WARNING: /etc/pam.d/common-password not found. Skipping U-02 configuration."
+      when: not has_pam_password | default(true)
       tags: ['u-02', 'pam']
 
     - name: "[U-03] Backup /etc/pam.d/common-auth"
@@ -59,6 +195,7 @@
         dest: /etc/pam.d/common-auth_org
         remote_src: yes
         force: no
+      when: has_pam_auth | default(false)
       tags: ['u-03', 'pam']
 
     - name: "[U-03] Configure /etc/pam.d/common-auth"
@@ -67,6 +204,7 @@
         dest: /etc/pam.d/common-auth
         backup: yes
         mode: '0644'
+      when: has_pam_auth | default(false)
       tags: ['u-03', 'pam']
 
     - name: "[U-03] Backup /etc/pam.d/common-account"
@@ -75,6 +213,7 @@
         dest: /etc/pam.d/common-account_org
         remote_src: yes
         force: no
+      when: has_pam_account | default(false)
       tags: ['u-03', 'pam']
 
     - name: "[U-03] Update /etc/pam.d/common-account"
@@ -84,6 +223,13 @@
           account required                        pam_faillock.so
         marker: "# {mark} ANSIBLE MANAGED BLOCK U-03"
         backup: yes
+      when: has_pam_account | default(false)
+      tags: ['u-03', 'pam']
+
+    - name: "[U-03] Warning - PAM files not found"
+      debug:
+        msg: "WARNING: One or more PAM files not found. Skipping U-03 configuration."
+      when: not (has_pam_auth | default(false)) or not (has_pam_account | default(false))
       tags: ['u-03', 'pam']
 
     # -------------------------------------------------------
@@ -94,6 +240,7 @@
         path: /etc/login.defs
         regexp: '^PASS_MAX_DAYS'
         line: 'PASS_MAX_DAYS	{{ password_max_days }}'
+      when: has_login_defs | default(false)
       tags: ['u-47', 'password']
 
     - name: "[U-46] Set PASS_MIN_LEN to {{ password_min_len }}"
@@ -101,6 +248,7 @@
         path: /etc/login.defs
         regexp: '^#?PASS_MIN_LEN'
         line: 'PASS_MIN_LEN	{{ password_min_len }}'
+      when: has_login_defs | default(false)
       tags: ['u-46', 'password']
 
     - name: "[U-46] Set PASS_MIN_DAYS to {{ password_min_days }}"
@@ -108,7 +256,14 @@
         path: /etc/login.defs
         regexp: '^PASS_MIN_DAYS'
         line: 'PASS_MIN_DAYS	{{ password_min_days }}'
+      when: has_login_defs | default(false)
       tags: ['u-46', 'password']
+
+    - name: "[U-46/U-47] Warning - login.defs not found"
+      debug:
+        msg: "WARNING: /etc/login.defs not found. Skipping password policy configuration."
+      when: not has_login_defs | default(true)
+      tags: ['u-46', 'u-47', 'password']
 
     # -------------------------------------------------------
     # U-54: Session Timeout
@@ -120,6 +275,13 @@
           TMOUT={{ session_timeout }}
           export TMOUT
         marker: "# {mark} ANSIBLE MANAGED BLOCK U-54"
+      when: has_profile | default(false)
+      tags: ['u-54', 'session']
+
+    - name: "[U-54] Warning - profile not found"
+      debug:
+        msg: "WARNING: /etc/profile not found. Skipping session timeout configuration."
+      when: not has_profile | default(true)
       tags: ['u-54', 'session']
 
     # -------------------------------------------------------
@@ -129,12 +291,26 @@
       file:
         path: /etc/shadow
         mode: '0400'
+      when: has_shadow | default(false)
+      tags: ['u-08', 'permissions']
+
+    - name: "[U-08] Warning - shadow not found"
+      debug:
+        msg: "WARNING: /etc/shadow not found. Skipping shadow file permissions."
+      when: not has_shadow | default(true)
       tags: ['u-08', 'permissions']
 
     - name: "[U-11] Change permissions of /etc/rsyslog.conf"
       file:
         path: /etc/rsyslog.conf
         mode: '0640'
+      when: has_rsyslog | default(false)
+      tags: ['u-11', 'permissions']
+
+    - name: "[U-11] Warning - rsyslog.conf not found"
+      debug:
+        msg: "WARNING: /etc/rsyslog.conf not found. Skipping rsyslog permissions."
+      when: not has_rsyslog | default(true)
       tags: ['u-11', 'permissions']
 
     # -------------------------------------------------------
@@ -190,6 +366,13 @@
       file:
         path: /usr/bin/crontab
         mode: '0750'
+      when: has_crontab | default(false)
+      tags: ['u-22', 'cron']
+
+    - name: "[U-22] Warning - crontab binary not found"
+      debug:
+        msg: "WARNING: /usr/bin/crontab not found. Skipping crontab permissions."
+      when: not has_crontab | default(true)
       tags: ['u-22', 'cron']
 
     # -------------------------------------------------------
@@ -308,9 +491,19 @@
           changed_when: false
           failed_when: false
 
-      when: "'web_controllers' in group_names"
+      when:
+        - "'web_controllers' in group_names"
+        - has_apache_config | default(false)
       notify: restart apache2
       tags: ['apache', 'u-35', 'u-37', 'u-39', 'u-40', 'u-41']
+
+    - name: "[Apache] Warning - Apache config not found"
+      debug:
+        msg: "WARNING: /etc/apache2/apache2.conf not found. Skipping Apache hardening configuration."
+      when:
+        - "'web_controllers' in group_names"
+        - not has_apache_config | default(true)
+      tags: ['apache']
 
     # -------------------------------------------------------
     # Final Verification
@@ -320,12 +513,15 @@
       register: password_policy
       changed_when: false
       failed_when: false
+      when: has_login_defs | default(false)
       tags: ['verify']
 
     - name: "[Verification] Display password policy results"
       debug:
         var: password_policy.stdout_lines
-      when: password_policy.stdout_lines is defined
+      when:
+        - has_login_defs | default(false)
+        - password_policy.stdout_lines is defined
       tags: ['verify']
 
     - name: "[Verification] Check removed users"

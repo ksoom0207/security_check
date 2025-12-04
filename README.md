@@ -19,6 +19,44 @@ project_root/
 └── README.md                 # 이 파일
 ```
 
+## 주요 기능
+
+### 🔍 Pre-Check (사전 검사)
+플레이북 실행 전에 자동으로 필수 파일의 존재 여부를 확인합니다:
+- **자동 파일 검사**: 설정 변경 전 대상 파일이 존재하는지 확인
+- **명확한 경고 메시지**: 파일이 없을 경우 어떤 보안 항목이 건너뛰어지는지 표시
+- **안전한 실행**: 존재하지 않는 파일에 대한 작업을 자동으로 건너뜀
+- **상세한 로그**: 각 호스트별로 어떤 파일이 있고 없는지 상세히 표시
+
+검사 대상 파일:
+- `/etc/ssh/sshd_config` (SSH 설정)
+- `/etc/pam.d/common-*` (PAM 설정)
+- `/etc/login.defs` (패스워드 정책)
+- `/etc/profile` (세션 타임아웃)
+- `/etc/shadow` (사용자 패스워드)
+- `/etc/rsyslog.conf` (로그 설정)
+- `/usr/bin/crontab` (Cron 바이너리)
+- `/etc/apache2/apache2.conf` (Apache 설정, web_controllers만)
+
+### 💡 조건부 실행
+파일이 존재하지 않으면 해당 작업을 자동으로 건너뛰고, 명확한 경고 메시지를 표시합니다.
+
+예시:
+```
+TASK [Pre-Check] Display missing critical files warning
+ok: [server1] => {
+    "msg": "WARNING: The following critical files are missing:\n- /etc/apache2/apache2.conf (Apache hardening will be skipped)\n"
+}
+
+TASK [U-35] Disable Indexes in apache2.conf
+skipping: [server1]
+
+TASK [Apache] Warning - Apache config not found
+ok: [server1] => {
+    "msg": "WARNING: /etc/apache2/apache2.conf not found. Skipping Apache hardening configuration."
+}
+```
+
 ## 적용되는 보안 항목
 
 ### 계정 관리
@@ -128,14 +166,33 @@ server2 : ok=30   changed=8    unreachable=0    failed=0    skipped=5
 
 ### 5. 실패 원인 분석
 
-실패 시 빨간색으로 상세한 오류 메시지가 출력됩니다:
+**Pre-Check 기능 덕분에 대부분의 파일 부재 오류는 사전에 감지되고 안전하게 건너뛰어집니다.**
+
+실제 오류가 발생한 경우 빨간색으로 상세한 오류 메시지가 출력됩니다:
 
 ```
-TASK [U-35] Disable Indexes in apache2.conf] **********************************
+TASK [U-03] Install libpam-pwquality] ******************************************
 fatal: [server1]: FAILED! => {
-    "msg": "Destination /etc/apache2/apache2.conf does not exist !"
+    "msg": "Failed to update apt cache: ..."
 }
 ```
+
+**Pre-Check를 통해 예방되는 일반적인 오류:**
+- ❌ 과거: `Destination /etc/apache2/apache2.conf does not exist !` → 플레이북 중단
+- ✅ 현재: `WARNING: /etc/apache2/apache2.conf not found. Skipping Apache hardening.` → 안전하게 계속 진행
+
+**skipped 항목 확인:**
+```
+PLAY RECAP *********************************************************************
+server1 : ok=35   changed=12   unreachable=0    failed=0    skipped=15
+                                                              ↑
+                                                   15개 작업이 조건에 맞지 않아 건너뜀
+```
+
+skipped가 많다면:
+1. Pre-Check 경고 메시지를 확인하여 어떤 파일이 없는지 파악
+2. 해당 파일/패키지를 설치할지 결정
+3. 필요 없는 항목이면 무시
 
 ## 주의사항
 
