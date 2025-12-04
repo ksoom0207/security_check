@@ -626,13 +626,16 @@
 
             ✓ U-68: 경고 배너 설정 (/etc/issue, /etc/motd)
 
-          {% if 'web_controllers' in group_names %}[Apache 웹 서버]
+          {% if 'web_controllers' in group_names %}
+          [Apache 웹 서버]
           {% if has_apache_config %}  ✓ U-35: 디렉토리 인덱싱 비활성화
             ✓ U-37: AllowOverride 설정
             ✓ U-39: FollowSymLinks 비활성화
             ✓ U-40: /srv/ 디렉토리 제한
-            ✓ U-41: DocumentRoot 설정{% else %}  ⊗ Apache: Skipped (apache2.conf not found){% endif %}
-{% endif %}
+            ✓ U-41: DocumentRoot 설정
+          {% else %}  ⊗ Apache: Skipped (apache2.conf not found)
+          {% endif %}
+          {% endif %}
 
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
           📊 통계 (PLAY RECAP 참조)
@@ -700,9 +703,10 @@
 
           ✓ U-68: 경고 배너 설정
 
-          {% if 'web_controllers' in group_names %}[Apache 웹 서버]
+          {% if 'web_controllers' in group_names %}
+          [Apache 웹 서버]
           {% if has_apache_config %}✓ U-35~U-41: Apache 보안 설정 완료{% else %}⊗ Apache: Skipped{% endif %}
-{% endif %}
+          {% endif %}
 
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
           변경된 파일 백업 위치
