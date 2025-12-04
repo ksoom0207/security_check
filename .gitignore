@@ -1,0 +1,33 @@
+# Ansible vault files (contains passwords)
+group_vars/vault.yml
+
+# Backup files
+*.backup
+*_org
+
+# Ansible retry files
+*.retry
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+
+# Log files
+*.log
+result.log

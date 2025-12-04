@@ -74,6 +74,22 @@ Pre-check 완료 후 실제 작업 실행 전에 사용자에게 확인을 요�
 ============================================================
 ```
 
+### 🔐 자동 설정 저장 (Credential Reuse)
+SSH 키 설정 시 입력한 정보를 자동으로 저장하여 재사용합니다:
+- **ansible_user**: `group_vars/all.yml`에 저장
+- **ansible_become_password**: `group_vars/vault.yml`에 저장 (암호화 권장)
+- **inventory 템플릿**: 연결 설정 예시를 `inventory.ini`에 추가
+
+**장점:**
+- SSH 키 설정 후 보안 강화 플레이북 실행 시 별도 인증 불필요
+- Ansible Vault로 패스워드 안전하게 보호
+- CI/CD 파이프라인 자동화 지원
+
+**보안:**
+- `vault.yml`은 `.gitignore`에 포함되어 Git에 커밋되지 않음
+- `ansible-vault encrypt`로 암호화 가능
+- 평문 저장 시 파일 권한 자동으로 600 설정
+
 ### 📊 상세한 결과 리포트
 작업 완료 후 화면에 상세한 리포트가 표시되고, 파일로도 저장됩니다:
 
@@ -165,7 +181,7 @@ ansible-playbook setup_ssh_keys.yml
 $ ansible-playbook setup_ssh_keys.yml
 
 Enter remote username (default: ubuntu): ubuntu
-Enter SSH password for remote hosts:
+Enter SSH password for remote hosts: ********
 
 TASK [Setup] Display setup information
 ok: [localhost] =>
@@ -183,8 +199,36 @@ TASK [Setup] Display connection test results
 ok: [localhost] =>
   msg: |-
     ✓ 모든 호스트에 SSH 키 인증이 성공적으로 설정되었습니다!
-    이제 보안 강화 플레이북을 실행할 수 있습니다
+
+TASK [Setup] Final success message
+ok: [localhost] =>
+  msg: |-
+    ╔══════════════════════════════════════════════════════════════╗
+    ║           SSH 키 교환 및 설정 완료!                          ║
+    ╚══════════════════════════════════════════════════════════════╝
+
+    ✓ SSH 키 기반 인증 설정 완료
+    ✓ Ansible 연결 설정 저장 완료
+
+    다음 파일들이 업데이트되었습니다:
+    1. group_vars/all.yml - ansible_user 설정
+    2. group_vars/vault.yml - ansible_become_password 저장 (암호화 권장!)
+
+    # 방법 1: 암호화된 패스워드 사용 (권장)
+    ansible-vault encrypt group_vars/vault.yml
+    ansible-playbook -i inventory.ini harden_playbook.yml --ask-vault-pass
+
+    # 방법 2: 평문 패스워드 파일 사용 (테스트용)
+    ansible-playbook -i inventory.ini harden_playbook.yml --extra-vars "@group_vars/vault.yml"
+
+    # 방법 3: 수동으로 패스워드 입력
+    ansible-playbook -i inventory.ini harden_playbook.yml --ask-become-pass
 ```
+
+**자동 설정되는 파일:**
+- `group_vars/all.yml`: ansible_user, ansible_become 설정 추가
+- `group_vars/vault.yml`: ansible_become_password 저장 (평문)
+- `inventory.ini`: 연결 설정 템플릿 추가 (주석 처리됨)
 
 #### 수동 SSH 키 설정
 ```bash
@@ -229,8 +273,24 @@ cron_allowed_users:          # Cron 허용 사용자
 ### 3. 실행 방법
 
 #### 기본 실행 (대화형 모드)
+
+**방법 1: Vault로 암호화된 패스워드 사용 (권장)**
 ```bash
-ansible-playbook -i inventory.ini harden_playbook.yml
+# 패스워드 파일 암호화 (최초 1회)
+ansible-vault encrypt group_vars/vault.yml
+
+# 플레이북 실행
+ansible-playbook -i inventory.ini harden_playbook.yml --ask-vault-pass
+```
+
+**방법 2: 평문 패스워드 파일 사용 (테스트 환경)**
+```bash
+ansible-playbook -i inventory.ini harden_playbook.yml --extra-vars "@group_vars/vault.yml"
+```
+
+**방법 3: 패스워드 수동 입력**
+```bash
+ansible-playbook -i inventory.ini harden_playbook.yml --ask-become-pass
 ```
 
 **실행 흐름:**
@@ -242,7 +302,15 @@ ansible-playbook -i inventory.ini harden_playbook.yml
 
 #### 자동 실행 (확인 단계 건너뛰기)
 ```bash
-ansible-playbook -i inventory.ini harden_playbook.yml --extra-vars "skip_confirmation=true"
+# Vault 사용 시
+ansible-playbook -i inventory.ini harden_playbook.yml \
+  --ask-vault-pass \
+  --extra-vars "skip_confirmation=true"
+
+# 평문 패스워드 파일 사용 시
+ansible-playbook -i inventory.ini harden_playbook.yml \
+  --extra-vars "@group_vars/vault.yml" \
+  --extra-vars "skip_confirmation=true"
 ```
 
 CI/CD 파이프라인이나 자동화된 환경에서 사용할 때 유용합니다.
@@ -380,13 +448,28 @@ cat /tmp/security_hardening_report_<hostname>_<date>.txt
 
 ### ⚡ 빠른 시작 (Quick Start)
 
-완전 자동화 실행:
+```bash
+# 1. SSH 키 설정 및 연결 정보 저장
+ansible-playbook setup_ssh_keys.yml
+# → group_vars/all.yml, group_vars/vault.yml 자동 생성
+
+# 2. (권장) 패스워드 파일 암호화
+ansible-vault encrypt group_vars/vault.yml
+
+# 3. 보안 강화 실행
+ansible-playbook -i inventory.ini harden_playbook.yml \
+  --ask-vault-pass \
+  --extra-vars "skip_confirmation=true"
+```
+
+**테스트 환경용 (암호화 생략):**
 ```bash
 # 1. SSH 키 설정
 ansible-playbook setup_ssh_keys.yml
 
-# 2. 보안 강화 (확인 단계 스킵)
+# 2. 보안 강화 실행 (평문 패스워드 사용)
 ansible-playbook -i inventory.ini harden_playbook.yml \
+  --extra-vars "@group_vars/vault.yml" \
   --extra-vars "skip_confirmation=true"
 ```
 
@@ -397,6 +480,30 @@ ansible-playbook -i inventory.ini harden_playbook.yml \
 2. **테스트**: 프로덕션 환경 적용 전 테스트 환경에서 먼저 실행하세요
 3. **접근 권한**: Ansible 실행 사용자가 sudo 권한을 가지고 있어야 합니다
 4. **SSH 접근**: 대상 서버에 SSH로 접속 가능해야 합니다
+
+### 보안 관련 (중요!)
+**⚠️ `group_vars/vault.yml` 파일 보안:**
+- 이 파일에는 sudo 패스워드가 저장됩니다
+- **반드시 암호화하거나 삭제하세요!**
+- Git에 커밋되지 않도록 `.gitignore`에 포함되어 있습니다
+
+**권장 사항:**
+```bash
+# 방법 1: 암호화 (프로덕션 환경)
+ansible-vault encrypt group_vars/vault.yml
+
+# 방법 2: 삭제 후 수동 입력 (가장 안전)
+rm group_vars/vault.yml
+ansible-playbook -i inventory.ini harden_playbook.yml --ask-become-pass
+
+# 방법 3: 파일 권한 확인 (최소한)
+chmod 600 group_vars/vault.yml
+```
+
+**절대 하지 말아야 할 것:**
+- ❌ `vault.yml`을 Git에 커밋
+- ❌ 평문 패스워드를 공유 저장소에 저장
+- ❌ 프로덕션 환경에서 암호화 없이 사용
 
 ### PAM 설정 관련
 - PAM 설정 변경 후 로그인이 불가능할 수 있으므로, **현재 세션을 유지한 채로 새 세션에서 로그인 테스트**를 해야 합니다
