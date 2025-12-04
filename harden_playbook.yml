@@ -428,24 +428,24 @@
             remote_src: yes
             force: no
 
-        - name: "[U-35] Disable Indexes in apache2.conf"
+        - name: "[U-35] Disable Indexes option - Add minus sign"
           replace:
             path: /etc/apache2/apache2.conf
-            regexp: 'Options Indexes'
-            replace: 'Options -Indexes'
+            regexp: '(\s+Options\s+)Indexes'
+            replace: '\1-Indexes'
             backup: yes
 
-        - name: "[U-39] Disable FollowSymLinks"
+        - name: "[U-39] Disable FollowSymLinks - Add minus sign"
           replace:
             path: /etc/apache2/apache2.conf
-            regexp: '(\s)FollowSymLinks'
+            regexp: '(\s+Options\s+.*)(?<![- ])FollowSymLinks'
             replace: '\1-FollowSymLinks'
 
-        - name: "[U-37] AllowOverride AuthConfig"
+        - name: "[U-37] Change AllowOverride to AuthConfig"
           replace:
             path: /etc/apache2/apache2.conf
-            regexp: 'AllowOverride None'
-            replace: 'AllowOverride AuthConfig'
+            regexp: '(\s+)AllowOverride None'
+            replace: '\1AllowOverride AuthConfig'
 
         - name: "[U-35] Verify Indexes disabled"
           command: grep -E "(Options.*Indexes|Options -Indexes)" /etc/apache2/apache2.conf
@@ -465,35 +465,26 @@
           changed_when: false
           failed_when: false
 
-        - name: "[U-40] Comment out /srv/ Directory section"
-          replace:
-            path: /etc/apache2/apache2.conf
-            regexp: '^(<Directory /srv/>)$'
-            replace: '#\1'
+        - name: "[U-40] Comment out entire /srv/ directory block"
+          shell: |
+            # Check if /srv/ block exists and is not already commented
+            if grep -q "^<Directory /srv/>" /etc/apache2/apache2.conf; then
+              # Comment out all lines in the /srv/ directory block
+              sed -i '/<Directory \/srv\/>/,/<\/Directory>/ { /^[^#]/ s/^/#/ }' /etc/apache2/apache2.conf
+              echo "Commented out /srv/ directory block"
+            elif grep -q "^#<Directory /srv/>" /etc/apache2/apache2.conf; then
+              echo "/srv/ directory block already commented"
+            else
+              echo "/srv/ directory block not found"
+            fi
+          args:
+            executable: /bin/bash
+          register: u40_result
+          changed_when: "'Commented out' in u40_result.stdout"
 
-        - name: "[U-40] Comment out Options line in /srv/ section"
-          replace:
-            path: /etc/apache2/apache2.conf
-            regexp: '^(\s+Options Indexes FollowSymLinks)$'
-            replace: '#\1'
-
-        - name: "[U-40] Comment out AllowOverride line in /srv/ section"
-          replace:
-            path: /etc/apache2/apache2.conf
-            regexp: '^(\s+AllowOverride None)$'
-            replace: '#\1'
-
-        - name: "[U-40] Comment out Require line in /srv/ section"
-          replace:
-            path: /etc/apache2/apache2.conf
-            regexp: '^(\s+Require all granted)$'
-            replace: '#\1'
-
-        - name: "[U-40] Comment out closing Directory tag for /srv/"
-          replace:
-            path: /etc/apache2/apache2.conf
-            regexp: '^(</Directory>)(\s*#.*srv.*)?$'
-            replace: '#\1'
+        - name: "[U-40] Display result"
+          debug:
+            msg: "{{ u40_result.stdout }}"
 
         - name: "[U-41] Add DocumentRoot for repo"
           lineinfile:
