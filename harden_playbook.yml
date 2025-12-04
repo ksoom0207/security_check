@@ -93,7 +93,7 @@
           {% if not rsyslog_stat.stat.exists %}
           - /etc/rsyslog.conf (U-11 will be skipped)
           {% endif %}
-          {% if "'web_controllers' in group_names and apache_config_stat is defined and not apache_config_stat.stat.exists %}
+          {% if 'web_controllers' in group_names and apache_config_stat is defined and not apache_config_stat.stat.exists %}
           - /etc/apache2/apache2.conf (Apache hardening will be skipped)
           {% endif %}
       when: >
