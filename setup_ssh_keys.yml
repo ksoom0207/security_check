@@ -209,10 +209,11 @@
       blockinfile:
         path: "{{ playbook_dir }}/inventory.ini"
         marker: "# {mark} ANSIBLE MANAGED BLOCK - Connection Settings"
-        insertafter: '^\[all_servers\]'
+        insertafter: EOF
         block: |
+
           # Connection settings (configured by setup_ssh_keys.yml)
-          # Uncomment and use these settings if not using group_vars
+          # Uncomment to use these settings instead of group_vars
           #[all_servers:vars]
           #ansible_user={{ remote_user }}
           #ansible_ssh_private_key_file=~/.ssh/id_rsa
