@@ -124,6 +124,23 @@
         msg: "Pre-check completed. Proceeding with security hardening tasks..."
       tags: ['always']
 
+    - name: "[Confirmation] Pre-checks passed. Ready to apply changes?"
+      pause:
+        prompt: |
+
+          ============================================================
+          모든 필수 파일 검사가 완료되었습니다.
+
+          보안 설정을 적용하시겠습니까?
+
+          - Enter를 누르면 진행합니다
+          - Ctrl+C를 누른 뒤 'A'를 입력하면 중단합니다
+
+          자동 실행 시 --extra-vars "skip_confirmation=true" 사용
+          ============================================================
+      when: not (skip_confirmation | default(false))
+      tags: ['always']
+
   handlers:
     - name: restart sshd
       service:
@@ -560,3 +577,162 @@
         var: cron_allow.stdout_lines
       when: cron_allow.stdout_lines is defined
       tags: ['verify']
+
+  post_tasks:
+    # -------------------------------------------------------
+    # Summary Report: Display detailed results
+    # -------------------------------------------------------
+    - name: "[Summary] Generate security hardening report"
+      debug:
+        msg: |
+
+          ╔══════════════════════════════════════════════════════════════╗
+          ║        보안 강화 작업 완료 리포트 (Summary Report)           ║
+          ╚══════════════════════════════════════════════════════════════╝
+
+          📋 호스트: {{ inventory_hostname }}
+          📅 완료 시각: {{ ansible_date_time.iso8601 }}
+
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          ✅ 적용된 보안 항목
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+          [계정 및 인증]
+          {% if has_sshd_config %}  ✓ U-01: SSH Root 로그인 제한{% else %}  ⊗ U-01: Skipped (sshd_config not found){% endif %}
+
+          {% if has_pam_password %}  ✓ U-02: 패스워드 복잡도 설정 (PAM){% else %}  ⊗ U-02: Skipped (common-password not found){% endif %}
+
+          {% if has_pam_auth and has_pam_account %}  ✓ U-03: 계정 잠금 임계값 설정 (5회/120초){% else %}  ⊗ U-03: Skipped (PAM files not found){% endif %}
+
+          {% if has_login_defs %}  ✓ U-46: 패스워드 최소 길이 ({{ password_min_len }}자){% else %}  ⊗ U-46: Skipped (login.defs not found){% endif %}
+
+          {% if has_login_defs %}  ✓ U-47: 패스워드 최대 사용기간 ({{ password_max_days }}일){% else %}  ⊗ U-47: Skipped (login.defs not found){% endif %}
+
+            ✓ U-49: 불필요한 계정 제거 (lp, uucp, games)
+            ✓ U-50: 불필요한 그룹 제거 (lp, uucp, games)
+
+          [파일 및 디렉토리]
+          {% if has_shadow %}  ✓ U-08: /etc/shadow 권한 강화 (400){% else %}  ⊗ U-08: Skipped (shadow not found){% endif %}
+
+          {% if has_rsyslog %}  ✓ U-11: /etc/rsyslog.conf 권한 강화 (640){% else %}  ⊗ U-11: Skipped (rsyslog.conf not found){% endif %}
+
+            ✓ U-13: SUID/SGID 비트 제거
+
+          [서비스 관리]
+            ✓ U-22: Cron 접근 제어 설정
+          {% if has_crontab %}  ✓ U-22: Crontab 바이너리 권한 (750){% else %}  ⊗ U-22: Partial (crontab binary not found){% endif %}
+
+          {% if has_profile %}  ✓ U-54: 세션 타임아웃 ({{ session_timeout }}초){% else %}  ⊗ U-54: Skipped (profile not found){% endif %}
+
+            ✓ U-68: 경고 배너 설정 (/etc/issue, /etc/motd)
+
+          {% if 'web_controllers' in group_names %}[Apache 웹 서버]
+          {% if has_apache_config %}  ✓ U-35: 디렉토리 인덱싱 비활성화
+            ✓ U-37: AllowOverride 설정
+            ✓ U-39: FollowSymLinks 비활성화
+            ✓ U-40: /srv/ 디렉토리 제한
+            ✓ U-41: DocumentRoot 설정{% else %}  ⊗ Apache: Skipped (apache2.conf not found){% endif %}
+{% endif %}
+
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          📊 통계 (PLAY RECAP 참조)
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+          - ok: 성공한 작업 (변경 없음 포함)
+          - changed: 실제로 변경된 항목
+          - skipped: 조건 불충족으로 건너뛴 항목
+          - failed: 실패한 작업
+
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          💡 다음 단계
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+          1. 설정 파일 백업 확인: *_org 파일이 생성되었는지 확인
+          2. 서비스 재시작: sshd, apache2 등이 정상 재시작되었는지 확인
+          3. 로그인 테스트: 새 세션에서 로그인이 정상 작동하는지 확인
+          4. PAM 설정 확인: 패스워드 정책이 올바르게 적용되었는지 테스트
+
+          ⚠️  주의: PAM 설정 변경 시 현재 세션을 유지한 채로
+                   새 터미널에서 로그인 테스트를 반드시 수행하세요!
+
+          ╚══════════════════════════════════════════════════════════════╝
+      tags: ['always']
+
+    - name: "[Summary] Save report to file"
+      copy:
+        content: |
+          ============================================================
+          보안 강화 작업 완료 리포트
+          ============================================================
+
+          호스트: {{ inventory_hostname }}
+          완료 시각: {{ ansible_date_time.iso8601 }}
+          플레이북 실행 사용자: {{ ansible_user_id }}
+
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          적용된 보안 항목
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+          [계정 및 인증]
+          {% if has_sshd_config %}✓ U-01: SSH Root 로그인 제한{% else %}⊗ U-01: Skipped{% endif %}
+
+          {% if has_pam_password %}✓ U-02: 패스워드 복잡도 설정{% else %}⊗ U-02: Skipped{% endif %}
+
+          {% if has_pam_auth and has_pam_account %}✓ U-03: 계정 잠금 임계값 설정{% else %}⊗ U-03: Skipped{% endif %}
+
+          {% if has_login_defs %}✓ U-46: 패스워드 최소 길이 ({{ password_min_len }}자){% else %}⊗ U-46: Skipped{% endif %}
+
+          {% if has_login_defs %}✓ U-47: 패스워드 최대 사용기간 ({{ password_max_days }}일){% else %}⊗ U-47: Skipped{% endif %}
+
+          ✓ U-49: 불필요한 계정 제거
+          ✓ U-50: 불필요한 그룹 제거
+
+          [파일 및 디렉토리]
+          {% if has_shadow %}✓ U-08: /etc/shadow 권한 (400){% else %}⊗ U-08: Skipped{% endif %}
+
+          {% if has_rsyslog %}✓ U-11: /etc/rsyslog.conf 권한 (640){% else %}⊗ U-11: Skipped{% endif %}
+
+          ✓ U-13: SUID/SGID 제거
+
+          [서비스 관리]
+          ✓ U-22: Cron 접근 제어
+          {% if has_profile %}✓ U-54: 세션 타임아웃 ({{ session_timeout }}초){% else %}⊗ U-54: Skipped{% endif %}
+
+          ✓ U-68: 경고 배너 설정
+
+          {% if 'web_controllers' in group_names %}[Apache 웹 서버]
+          {% if has_apache_config %}✓ U-35~U-41: Apache 보안 설정 완료{% else %}⊗ Apache: Skipped{% endif %}
+{% endif %}
+
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          변경된 파일 백업 위치
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+          - /etc/pam.d/common-password_org
+          - /etc/pam.d/common-auth_org
+          - /etc/pam.d/common-account_org
+          - /etc/apache2/apache2.conf_org (web_controllers만)
+
+          Ansible 자동 백업: *.backup 파일들
+
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          다음 단계
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+          1. 로그인 테스트 수행 (새 세션에서)
+          2. 패스워드 정책 테스트
+          3. Apache 설정 확인 (web_controllers)
+          4. 보안 점검 재실행으로 적용 확인
+
+          ============================================================
+        dest: "/tmp/security_hardening_report_{{ inventory_hostname }}_{{ ansible_date_time.date }}.txt"
+        mode: '0644'
+      delegate_to: localhost
+      tags: ['always']
+
+    - name: "[Summary] Report saved notification"
+      debug:
+        msg: |
+          📄 상세 리포트가 저장되었습니다:
+          /tmp/security_hardening_report_{{ inventory_hostname }}_{{ ansible_date_time.date }}.txt
+      tags: ['always']
