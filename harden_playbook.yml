@@ -164,6 +164,7 @@
         state: present
       notify: restart sshd
       when: has_sshd_config | default(false)
+      register: u01_result
       tags: ['u-01', 'ssh']
 
     - name: "[U-01] Warning - sshd_config not found"
@@ -198,6 +199,7 @@
         backup: yes
         mode: '0644'
       when: has_pam_password | default(false)
+      register: u02_result
       tags: ['u-02', 'pam']
 
     - name: "[U-02] Warning - common-password not found"
@@ -222,6 +224,7 @@
         backup: yes
         mode: '0644'
       when: has_pam_auth | default(false)
+      register: u03_result
       tags: ['u-03', 'pam']
 
     - name: "[U-03] Backup /etc/pam.d/common-account"
@@ -434,6 +437,7 @@
             regexp: '(\s+Options\s+)Indexes'
             replace: '\1-Indexes'
             backup: yes
+          register: u35_result
 
         - name: "[U-39] Disable FollowSymLinks - Add minus sign"
           replace:
@@ -589,11 +593,11 @@
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
           [계정 및 인증]
-          {% if has_sshd_config %}  ✓ U-01: SSH Root 로그인 제한{% else %}  ⊗ U-01: Skipped (sshd_config not found){% endif %}
+          {% if u01_result is defined and u01_result.changed %}  ✓ Changed - U-01: SSH Root 로그인 제한{% elif u01_result is defined and not u01_result.changed %}  ○ OK - U-01: SSH Root 로그인 제한 (이미 설정됨){% else %}  ⊗ Skipped - U-01: sshd_config not found{% endif %}
 
-          {% if has_pam_password %}  ✓ U-02: 패스워드 복잡도 설정 (PAM){% else %}  ⊗ U-02: Skipped (common-password not found){% endif %}
+          {% if u02_result is defined and u02_result.changed %}  ✓ Changed - U-02: 패스워드 복잡도 설정 (PAM){% elif u02_result is defined and not u02_result.changed %}  ○ OK - U-02: 패스워드 복잡도 설정 (이미 설정됨){% else %}  ⊗ Skipped - U-02: common-password not found{% endif %}
 
-          {% if has_pam_auth and has_pam_account %}  ✓ U-03: 계정 잠금 임계값 설정 (5회/120초){% else %}  ⊗ U-03: Skipped (PAM files not found){% endif %}
+          {% if u03_result is defined and u03_result.changed %}  ✓ Changed - U-03: 계정 잠금 임계값 설정 (5회/120초){% elif u03_result is defined and not u03_result.changed %}  ○ OK - U-03: 계정 잠금 임계값 설정 (이미 설정됨){% else %}  ⊗ Skipped - U-03: PAM files not found{% endif %}
 
           {% if has_login_defs %}  ✓ U-46: 패스워드 최소 길이 ({{ password_min_len }}자){% else %}  ⊗ U-46: Skipped (login.defs not found){% endif %}
 
@@ -619,23 +623,31 @@
 
           {% if 'web_controllers' in group_names %}
           [Apache 웹 서버]
-          {% if has_apache_config %}  ✓ U-35: 디렉토리 인덱싱 비활성화
+          {% if has_apache_config %}{% if u35_result is defined and u35_result.changed %}  ✓ Changed - U-35: 디렉토리 인덱싱 비활성화{% elif u35_result is defined and not u35_result.changed %}  ○ OK - U-35: 디렉토리 인덱싱 비활성화 (이미 설정됨){% else %}  ⊗ Skipped - U-35{% endif %}
             ✓ U-37: AllowOverride 설정
             ✓ U-39: FollowSymLinks 비활성화
-            ✓ U-40: /srv/ 디렉토리 제한
+          {% if u40_result is defined and u40_result.changed %}  ✓ Changed - U-40: /srv/ 디렉토리 제한{% elif u40_result is defined %}  ○ OK - U-40: /srv/ 디렉토리 제한 ({{ u40_result.stdout }}){% else %}  ⊗ Skipped - U-40{% endif %}
             ✓ U-41: DocumentRoot 설정
           {% else %}  ⊗ Apache: Skipped (apache2.conf not found)
           {% endif %}
           {% endif %}
 
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          📊 통계 (PLAY RECAP 참조)
+          📊 리포트 심볼 설명
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-          - ok: 성공한 작업 (변경 없음 포함)
-          - changed: 실제로 변경된 항목
-          - skipped: 조건 불충족으로 건너뛴 항목
-          - failed: 실패한 작업
+          ✓ Changed : 설정이 변경되었습니다
+          ○ OK      : 이미 올바르게 설정되어 있습니다 (변경 불필요)
+          ⊗ Skipped : 파일이 없거나 조건 불충족으로 건너뛰었습니다
+
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          📊 PLAY RECAP 통계
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+          - ok      : 성공한 작업 (Changed + OK 포함)
+          - changed : 실제로 변경된 항목 (위 ✓ Changed와 일치)
+          - skipped : 조건 불충족으로 건너뛴 항목
+          - failed  : 실패한 작업
 
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
           💡 다음 단계
@@ -668,11 +680,11 @@
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
           [계정 및 인증]
-          {% if has_sshd_config %}✓ U-01: SSH Root 로그인 제한{% else %}⊗ U-01: Skipped{% endif %}
+          {% if u01_result is defined and u01_result.changed %}✓ Changed - U-01: SSH Root 로그인 제한{% elif u01_result is defined and not u01_result.changed %}○ OK - U-01: SSH Root 로그인 제한{% else %}⊗ Skipped - U-01{% endif %}
 
-          {% if has_pam_password %}✓ U-02: 패스워드 복잡도 설정{% else %}⊗ U-02: Skipped{% endif %}
+          {% if u02_result is defined and u02_result.changed %}✓ Changed - U-02: 패스워드 복잡도 설정{% elif u02_result is defined and not u02_result.changed %}○ OK - U-02: 패스워드 복잡도 설정{% else %}⊗ Skipped - U-02{% endif %}
 
-          {% if has_pam_auth and has_pam_account %}✓ U-03: 계정 잠금 임계값 설정{% else %}⊗ U-03: Skipped{% endif %}
+          {% if u03_result is defined and u03_result.changed %}✓ Changed - U-03: 계정 잠금 임계값 설정{% elif u03_result is defined and not u03_result.changed %}○ OK - U-03: 계정 잠금 임계값 설정{% else %}⊗ Skipped - U-03{% endif %}
 
           {% if has_login_defs %}✓ U-46: 패스워드 최소 길이 ({{ password_min_len }}자){% else %}⊗ U-46: Skipped{% endif %}
 
