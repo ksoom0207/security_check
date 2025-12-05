@@ -34,10 +34,11 @@
       register: login_defs_stat
       tags: ['always']
 
-    - name: "[Pre-Check] Check if profile exists"
+    - name: "[Pre-Check] Check if profile exists (mgmt only)"
       stat:
         path: /etc/profile
       register: profile_stat
+      when: "'mgmt' in group_names"
       tags: ['always']
 
     - name: "[Pre-Check] Check if shadow exists"
@@ -84,7 +85,7 @@
           {% if not login_defs_stat.stat.exists %}
           - /etc/login.defs (U-46, U-47 will be skipped)
           {% endif %}
-          {% if not profile_stat.stat.exists %}
+          {% if 'mgmt' in group_names and profile_stat is defined and not profile_stat.stat.exists %}
           - /etc/profile (U-54 will be skipped)
           {% endif %}
           {% if not shadow_stat.stat.exists %}
@@ -99,7 +100,7 @@
       when: >
         not sshd_config_stat.stat.exists or
         not login_defs_stat.stat.exists or
-        not profile_stat.stat.exists or
+        ('mgmt' in group_names and profile_stat is defined and not profile_stat.stat.exists) or
         not shadow_stat.stat.exists or
         not rsyslog_stat.stat.exists or
         ('web_controllers' in group_names and apache_config_stat is defined and not apache_config_stat.stat.exists)
@@ -112,7 +113,7 @@
         has_pam_auth: "{{ pam_files_stat.results[1].stat.exists | default(false) }}"
         has_pam_account: "{{ pam_files_stat.results[2].stat.exists | default(false) }}"
         has_login_defs: "{{ login_defs_stat.stat.exists | default(false) }}"
-        has_profile: "{{ profile_stat.stat.exists | default(false) }}"
+        has_profile: "{{ profile_stat.stat.exists | default(false) if profile_stat is defined else false }}"
         has_shadow: "{{ shadow_stat.stat.exists | default(false) }}"
         has_rsyslog: "{{ rsyslog_stat.stat.exists | default(false) }}"
         has_crontab: "{{ crontab_stat.stat.exists | default(false) }}"
@@ -286,7 +287,7 @@
       tags: ['u-46', 'u-47', 'password']
 
     # -------------------------------------------------------
-    # U-54: Session Timeout
+    # U-54: Session Timeout (mgmt nodes only)
     # -------------------------------------------------------
     - name: "[U-54] Set TMOUT in /etc/profile"
       blockinfile:
@@ -295,13 +296,14 @@
           TMOUT={{ session_timeout }}
           export TMOUT
         marker: "# {mark} ANSIBLE MANAGED BLOCK U-54"
-      when: has_profile | default(false)
+      when: "'mgmt' in group_names and has_profile | default(false)"
+      register: u54_result
       tags: ['u-54', 'session']
 
     - name: "[U-54] Warning - profile not found"
       debug:
         msg: "WARNING: /etc/profile not found. Skipping session timeout configuration."
-      when: not has_profile | default(true)
+      when: "'mgmt' in group_names and not has_profile | default(true)"
       tags: ['u-54', 'session']
 
     # -------------------------------------------------------
@@ -617,7 +619,9 @@
             ✓ U-22: Cron 접근 제어 설정
           {% if has_crontab %}  ✓ U-22: Crontab 바이너리 권한 (750){% else %}  ⊗ U-22: Partial (crontab binary not found){% endif %}
 
-          {% if has_profile %}  ✓ U-54: 세션 타임아웃 ({{ session_timeout }}초){% else %}  ⊗ U-54: Skipped (profile not found){% endif %}
+          {% if 'mgmt' in group_names %}
+          {% if u54_result is defined and u54_result.changed %}  ✓ Changed - U-54: 세션 타임아웃 ({{ session_timeout }}초){% elif u54_result is defined and not u54_result.changed %}  ○ OK - U-54: 세션 타임아웃 (이미 설정됨){% else %}  ⊗ Skipped - U-54: profile not found{% endif %}
+          {% endif %}
 
             ✓ U-68: 경고 배너 설정 (/etc/issue, /etc/motd)
 
@@ -702,7 +706,7 @@
 
           [서비스 관리]
           ✓ U-22: Cron 접근 제어
-          {% if has_profile %}✓ U-54: 세션 타임아웃 ({{ session_timeout }}초){% else %}⊗ U-54: Skipped{% endif %}
+          {% if 'mgmt' in group_names %}{% if u54_result is defined and u54_result.changed %}✓ Changed - U-54: 세션 타임아웃 ({{ session_timeout }}초){% elif u54_result is defined and not u54_result.changed %}○ OK - U-54: 세션 타임아웃{% else %}⊗ Skipped - U-54{% endif %}{% endif %}
 
           ✓ U-68: 경고 배너 설정
 
