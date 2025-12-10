@@ -289,13 +289,29 @@
     # -------------------------------------------------------
     # U-54: Session Timeout (mgmt nodes only)
     # -------------------------------------------------------
-    - name: "[U-54] Set TMOUT in /etc/profile"
-      blockinfile:
+    - name: "[U-54] Remove old TMOUT blocks if present"
+      lineinfile:
         path: /etc/profile
-        block: |
-          TMOUT={{ session_timeout }}
-          export TMOUT
-        marker: "# {mark} ANSIBLE MANAGED BLOCK U-54"
+        regexp: '^#.*MANAGED BY ANSIBLE-HARDENING'
+        state: absent
+      when: "'mgmt' in group_names and has_profile | default(false)"
+      tags: ['u-54', 'session']
+
+    - name: "[U-54] Remove old TMOUT readonly declarations"
+      lineinfile:
+        path: /etc/profile
+        regexp: '^readonly TMOUT'
+        state: absent
+      when: "'mgmt' in group_names and has_profile | default(false)"
+      tags: ['u-54', 'session']
+
+    - name: "[U-54] Set TMOUT export in /etc/profile"
+      lineinfile:
+        path: /etc/profile
+        regexp: '^(export )?TMOUT='
+        line: 'export TMOUT={{ session_timeout }}'
+        state: present
+        backup: yes
       when: "'mgmt' in group_names and has_profile | default(false)"
       register: u54_result
       tags: ['u-54', 'session']
